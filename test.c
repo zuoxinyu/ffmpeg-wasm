@@ -1,0 +1,294 @@
+#include <libavcodec/avcodec.h>
+#include <SDL2/SDL.h>
+
+#include <stdio.h>
+
+const int WIN_HEIGHT = 1080, WIN_WIDTH = 1920;
+
+typedef struct Player {
+    // decoding stuff
+    enum AVCodecID codec_id;
+    AVCodec* codec;
+    AVCodecContext* avctx;
+    AVPacket* packet;
+    AVFrame *frame, *dst_frame;
+    AVCodecParserContext* parser;
+    struct SwsContext* sws_ctx;
+
+    // window properties
+    char* title;
+    int w, h, x, y, depth;
+    int fps;
+
+    // window stuff
+    SDL_Window* win;
+    SDL_Texture* texture;
+    SDL_Renderer* renderer;
+    SDL_Texture* text_texture;
+    SDL_Surface* attr_surface;
+
+    // states
+    int paused;
+    int fullscreened;
+    uint32_t last_tick;
+    uint32_t period_start_tick;
+    uint32_t start_tick;
+    int frame_count;
+    int period_frame_count;
+    // cJSON* last_frame_results;
+} Player;
+
+int create_decoder(Player* player) {
+    int ret;
+
+    player->codec = avcodec_find_decoder(player->codec_id);
+    if (!player->codec) {
+        fprintf(stderr, "avcodec_find_decoder: can't find codec: %d\n", player->codec_id);
+        return -1;
+    }
+
+    player->avctx = avcodec_alloc_context3(player->codec);
+    if (!player->avctx) {
+        fprintf(stderr, "avcodec_alloc_context3: can't alloc\n");
+        return -1;
+    }
+
+    ret = avcodec_open2(player->avctx, player->codec, NULL);
+    if (ret < 0) {
+        fprintf(stderr, "avcodec_open2: %s\n", av_err2str(ret));
+        return -1;
+    }
+
+    player->packet = av_packet_alloc();
+    if (!player->packet) {
+        fprintf(stderr, "av_packet_alloc\n");
+        return -1;
+    }
+
+    player->frame = av_frame_alloc();
+    if (!player->frame) {
+        fprintf(stderr, "av_frame_alloc\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+Player* create_player() {
+    Player* player = calloc(sizeof(Player), 1);
+    if (!player) {
+        fprintf(stderr, "failed to calloc player\n");
+        return NULL;
+    }
+    player->title = calloc(256, 1);
+    if (!player->title) {
+        fprintf(stderr, "failed to calloc title\n");
+        return NULL;
+    }
+
+    player->codec_id = AV_CODEC_ID_H265;
+    player->h = WIN_HEIGHT;
+    player->w = WIN_WIDTH;
+    player->x = SDL_WINDOWPOS_UNDEFINED;
+    player->y = SDL_WINDOWPOS_UNDEFINED;
+    player->fps = 25;
+    sprintf(player->title, "wasm player");
+
+    int ret = 0;
+
+    // ret = create_window(player);
+    // if (ret < 0) {
+    //     goto FAIL;
+    // }
+
+    ret = create_decoder(player);
+    if (ret < 0) {
+        goto FAIL;
+    }
+
+    return player;
+
+FAIL:
+    // destroy_player(player);
+    return NULL;
+}
+
+
+int create_window(Player* player) {
+    int ret;
+    player->win = SDL_CreateWindow(player->title, player->x, player->y, player->w, player->h,
+                                   SDL_WINDOW_SHOWN | 0);
+    if (!player->win) {
+        fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
+        return -1;
+    }
+
+    player->renderer = SDL_CreateRenderer(player->win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!player->renderer) {
+        fprintf(stderr, "SDL_CreateRenderer: %s\n", SDL_GetError());
+        return -1;
+    }
+
+    ret = SDL_SetRenderDrawBlendMode(player->renderer, SDL_BLENDMODE_BLEND);
+    if (ret < 0) {
+        fprintf(stderr, "SDL_SetRenderDrawBlendMode: %s\n", SDL_GetError());
+        return -1;
+    }
+
+    player->attr_surface = SDL_CreateRGBSurface(0, 200, 200, 8, 0, 0, 0, 0);
+    if (!player->attr_surface) {
+        fprintf(stderr, "SDL_CreateRGBSurface: %s\n", SDL_GetError());
+        return -1;
+    }
+
+    // TODO: detect frame format or sws convert each frame
+    player->texture =
+        SDL_CreateTexture(player->renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, player->w, player->h);
+    if (!player->texture) {
+        fprintf(stderr, "SDL_CreateTexture: %s\n", SDL_GetError());
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int update_frame(Player* player) {
+#ifdef USE_ADAPTIVE_DELAYING
+    int32_t start = SDL_GetTicks();
+#endif
+    int ret;
+    int ystride, ustride, vstride;
+    uint8_t *y, *u, *v;
+    uint8_t* buff = NULL;
+    AVFrame* f = player->frame;
+    enum AVPixelFormat fmt = f->format;
+
+    y = f->data[0];
+    u = f->data[1];
+    v = f->data[2];
+    ystride = f->linesize[0];
+    ustride = f->linesize[1];
+    vstride = f->linesize[2];
+
+    ret = SDL_UpdateYUVTexture(player->texture, NULL, y, ystride, u, ustride, v, vstride);
+    if (ret < 0) {
+        fprintf(stderr, "SDL_UpdateYUVTexture: %s\n", SDL_GetError());
+        return -1;
+    }
+    if (buff)
+        free(buff);
+
+    ret = SDL_RenderCopy(player->renderer, player->texture, NULL, NULL);
+    if (ret < 0) {
+        fprintf(stderr, "SDL_RenderCopy: %s\n", SDL_GetError());
+        return -1;
+    }
+
+    player->period_frame_count++;
+    player->last_tick = SDL_GetTicks();
+    if (player->start_tick == 0) {
+        // printf("decoded frame format: %s\n", av_get_pix_fmt_name(player->frame->format));
+        player->start_tick = player->last_tick;
+    }
+    if (player->period_start_tick == 0) {
+        player->period_start_tick = player->last_tick;
+    }
+    // update_stats(player);
+
+    // update_rects(player);
+
+    SDL_RenderPresent(player->renderer);
+    SDL_RenderFlush(player->renderer);
+#ifdef USE_ADAPTIVE_DELAYING
+    uint32_t delay = SDL_min(abs(1000 / player->fps - (int32_t)(SDL_GetTicks() - start)), 40);
+#else
+    uint32_t delay = 20;
+#endif
+    // make render smoothly. 20 is a chosen value, since
+    // during decoding h265, x265 require reading frames
+    // ASAP, otherwise frames discarding would happen.
+    SDL_Delay(delay);
+    return ret;
+}
+
+int on_packet_data(Player* player, void* data, size_t size) {
+    int ret = 0;
+#ifndef USE_PARSER_DEMUXING
+    ret = av_packet_from_data(player->packet, data, (int)size);
+    if (ret < 0) {
+        fprintf(stderr, "av_packet_from_data: %s\n", av_err2str(ret));
+        return -1;
+    }
+#else
+    int read_len = av_parser_parse2(player->parser, player->avctx, &player->packet->data, &player->packet->size, data,
+                                    size, AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
+    if (read_len < 0) {
+        fprintf(stderr, "av_parser_parse2 error\n");
+        return -1;
+    }
+    if (!player->packet->size) {
+        return 0;
+    }
+#endif
+    ret = avcodec_send_packet(player->avctx, player->packet);
+    if (ret < 0) {
+        if (player->frame_count) /* only warn the errors after the first frame decoded */
+            fprintf(stderr, "avcodec_send_packet: %s\n", av_err2str(ret));
+        return -1;
+    }
+
+    while (ret >= 0) {
+        ret = avcodec_receive_frame(player->avctx, player->frame);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            return 0;
+        } else if (ret < 0) {
+            fprintf(stderr, "avcodec_receive_frame: %s\n", av_err2str(ret));
+            return -1;
+        }
+
+        player->frame_count++;
+        if (player->paused) {
+            return 0;
+        }
+
+        update_frame(player);
+    }
+
+    fprintf(stderr, "avcodec_receive_frame: %s\n", av_err2str(ret));
+    return 0;
+}
+
+int main(void) {
+    Player *player = create_player();
+    if (!player) {
+        fprintf(stderr, "failed to create player\n");
+        exit(0);
+    } else {
+        printf("created\n");
+    }
+    int ret = create_window(player);
+    if (ret < 0) {
+        fprintf(stderr, "failed to create window\n");
+        exit(0);
+    }
+
+    char fname[20] = {0};
+    static char buf[1024*1024] = {0};
+    for (int i = 90; i < 200; i++) {
+        sprintf(fname, "data/pkt-%04d", i);
+        FILE *pkt = fopen(fname, "r");
+        if (!pkt) {
+            fprintf(stderr, "failed to open file: %s\n", fname);
+            break;
+        }
+        size_t size = fread(buf, 1, 1024*1024, pkt);
+        printf("size: %ld\n", size);
+        ret = on_packet_data(player, buf, size);
+        if (ret < 0) {
+            fprintf(stderr, "error to decode\n");
+        }
+    }
+}
+
+
