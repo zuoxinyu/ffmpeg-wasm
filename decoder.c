@@ -198,7 +198,7 @@ int update_frame(Player* player) {
         fprintf(stdout, "failed to sws_scale: %s\n", av_err2str(ret));
     }
 
-    return player->dst_frame->data;
+    return player->dst_frame->data[0];
 
     player->period_frame_count++;
     player->last_tick = SDL_GetTicks();

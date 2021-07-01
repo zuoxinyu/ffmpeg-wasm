@@ -88,8 +88,8 @@ function renderFrame2D(ctx, player, pixels) {
   if (ptr < 0) {
     return false
   }
-  const heapBytes = new Uint8ClampedArray(Module.HEAPU8.buffer, ptr, 1920 * 1080 * 4);
-  const imgData = new ImageData(heapBytes, 1920, 1080)
+  const heapBytes = new Uint8ClampedArray(Module.HEAPU8.buffer, ptr, width * height * 4);
+  const imgData = new ImageData(heapBytes, width, height)
   ctx.putImageData(imgData, 0, 0)
   return true
 }
@@ -119,8 +119,7 @@ function play(url) {
       ev.data.arrayBuffer().then(data => {
         ctx.beginPath()
         ctx.clearRect(0, 0, width, height)
-        renderFrame2D(ctx, player, data)
-        if (lastJson !== null) {
+        if (renderFrame2D(ctx, player, data)) {
           renderRects2D(ctx, player, lastJson)
         }
       })
