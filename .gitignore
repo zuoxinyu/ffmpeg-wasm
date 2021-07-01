@@ -1,5 +1,7 @@
 data
 FFmpeg
+x264
+x265
 decoder.data
 decoder.html
 decoder.js

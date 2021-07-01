@@ -77,6 +77,9 @@ int create_decoder(Player* player) {
         fprintf(stdout, "av_frame_alloc\n");
         return -1;
     }
+    player->dst_frame->width = 1920;
+    player->dst_frame->height = 1080;
+    player->dst_frame->format = AV_PIX_FMT_RGBA;
     av_frame_get_buffer(player->dst_frame, 0);
 
     return 0;
@@ -172,37 +175,30 @@ int update_frame(Player* player) {
     AVFrame* f = player->frame;
     enum AVPixelFormat fmt = f->format;
 
-    /*
-    y = f->data[0];
-    u = f->data[1];
-    v = f->data[2];
-    ystride = f->linesize[0];
-    ustride = f->linesize[1];
-    vstride = f->linesize[2];
-    */
+    player->sws_ctx = sws_getCachedContext(
+            player->sws_ctx,
+            f->width,
+            f->height,
+            AV_PIX_FMT_YUV420P,
+            f->width,
+            f->height,
+            AV_PIX_FMT_RGBA,
+            0, NULL, NULL, NULL);
 
+    ret = sws_scale(
+            player->sws_ctx,
+            (const uint8_t* const*)f->data,
+            f->linesize,
+            0,
+            f->height,
+            player->dst_frame->data,
+            player->dst_frame->linesize);
 
-    player->sws_ctx = sws_getCachedContext(player->sws_ctx, player->frame->width, player->frame->height, AV_PIX_FMT_YUVJ420P, 
-       player->frame->width, player->frame->height, AV_PIX_FMT_RGBA, 0, NULL, NULL, NULL);
-    sws_scale(player->sws_ctx, (const uint8_t* const*)f->data, f->linesize, 0, f->height, player->dst_frame->data, player->dst_frame->linesize);
-
-    return player->dst_frame->data[0];
-
-    /*
-    ret = SDL_UpdateYUVTexture(player->texture, NULL, y, ystride, u, ustride, v, vstride);
     if (ret < 0) {
-        fprintf(stdout, "SDL_UpdateYUVTexture: %s\n", SDL_GetError());
-        return -1;
+        fprintf(stdout, "failed to sws_scale: %s\n", av_err2str(ret));
     }
-    if (buff)
-        free(buff);
 
-    ret = SDL_RenderCopy(player->renderer, player->texture, NULL, NULL);
-    if (ret < 0) {
-        fprintf(stdout, "SDL_RenderCopy: %s\n", SDL_GetError());
-        return -1;
-    }
-    */
+    return player->dst_frame->data;
 
     player->period_frame_count++;
     player->last_tick = SDL_GetTicks();
@@ -231,6 +227,7 @@ int update_frame(Player* player) {
     // during decoding h265, x265 require reading frames
     // ASAP, otherwise frames discarding would happen.
     SDL_Delay(delay);
+
     return ret;
 }
 
