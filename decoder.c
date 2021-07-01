@@ -1,4 +1,5 @@
 #include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
 #include <SDL2/SDL.h>
 
 #include <stdio.h>
@@ -43,33 +44,40 @@ int create_decoder(Player* player) {
 
     player->codec = avcodec_find_decoder(player->codec_id);
     if (!player->codec) {
-        fprintf(stderr, "avcodec_find_decoder: can't find codec: %d\n", player->codec_id);
+        fprintf(stdout, "avcodec_find_decoder: can't find codec: %d\n", player->codec_id);
         return -1;
     }
 
     player->avctx = avcodec_alloc_context3(player->codec);
     if (!player->avctx) {
-        fprintf(stderr, "avcodec_alloc_context3: can't alloc\n");
+        fprintf(stdout, "avcodec_alloc_context3: can't alloc\n");
         return -1;
     }
 
     ret = avcodec_open2(player->avctx, player->codec, NULL);
     if (ret < 0) {
-        fprintf(stderr, "avcodec_open2: %s\n", av_err2str(ret));
+        fprintf(stdout, "avcodec_open2: %s\n", av_err2str(ret));
         return -1;
     }
 
     player->packet = av_packet_alloc();
     if (!player->packet) {
-        fprintf(stderr, "av_packet_alloc\n");
+        fprintf(stdout, "av_packet_alloc\n");
         return -1;
     }
 
     player->frame = av_frame_alloc();
     if (!player->frame) {
-        fprintf(stderr, "av_frame_alloc\n");
+        fprintf(stdout, "av_frame_alloc\n");
         return -1;
     }
+
+    player->dst_frame = av_frame_alloc();
+    if (!player->frame) {
+        fprintf(stdout, "av_frame_alloc\n");
+        return -1;
+    }
+    av_frame_get_buffer(player->dst_frame, 0);
 
     return 0;
 }
@@ -77,12 +85,12 @@ int create_decoder(Player* player) {
 Player* create_player() {
     Player* player = calloc(sizeof(Player), 1);
     if (!player) {
-        fprintf(stderr, "failed to calloc player\n");
+        fprintf(stdout, "failed to calloc player\n");
         return NULL;
     }
     player->title = calloc(256, 1);
     if (!player->title) {
-        fprintf(stderr, "failed to calloc title\n");
+        fprintf(stdout, "failed to calloc title\n");
         return NULL;
     }
 
@@ -119,25 +127,25 @@ int create_window(Player* player) {
     player->win = SDL_CreateWindow(player->title, player->x, player->y, player->w, player->h,
                                    SDL_WINDOW_SHOWN | 0);
     if (!player->win) {
-        fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
+        fprintf(stdout, "SDL_CreateWindow: %s\n", SDL_GetError());
         return -1;
     }
 
     player->renderer = SDL_CreateRenderer(player->win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!player->renderer) {
-        fprintf(stderr, "SDL_CreateRenderer: %s\n", SDL_GetError());
+        fprintf(stdout, "SDL_CreateRenderer: %s\n", SDL_GetError());
         return -1;
     }
 
     ret = SDL_SetRenderDrawBlendMode(player->renderer, SDL_BLENDMODE_BLEND);
     if (ret < 0) {
-        fprintf(stderr, "SDL_SetRenderDrawBlendMode: %s\n", SDL_GetError());
+        fprintf(stdout, "SDL_SetRenderDrawBlendMode: %s\n", SDL_GetError());
         return -1;
     }
 
     player->attr_surface = SDL_CreateRGBSurface(0, 200, 200, 8, 0, 0, 0, 0);
     if (!player->attr_surface) {
-        fprintf(stderr, "SDL_CreateRGBSurface: %s\n", SDL_GetError());
+        fprintf(stdout, "SDL_CreateRGBSurface: %s\n", SDL_GetError());
         return -1;
     }
 
@@ -145,7 +153,7 @@ int create_window(Player* player) {
     player->texture =
         SDL_CreateTexture(player->renderer, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, player->w, player->h);
     if (!player->texture) {
-        fprintf(stderr, "SDL_CreateTexture: %s\n", SDL_GetError());
+        fprintf(stdout, "SDL_CreateTexture: %s\n", SDL_GetError());
         return -1;
     }
 
@@ -164,16 +172,26 @@ int update_frame(Player* player) {
     AVFrame* f = player->frame;
     enum AVPixelFormat fmt = f->format;
 
+    /*
     y = f->data[0];
     u = f->data[1];
     v = f->data[2];
     ystride = f->linesize[0];
     ustride = f->linesize[1];
     vstride = f->linesize[2];
+    */
 
+
+    player->sws_ctx = sws_getCachedContext(player->sws_ctx, player->frame->width, player->frame->height, AV_PIX_FMT_YUVJ420P, 
+       player->frame->width, player->frame->height, AV_PIX_FMT_RGBA, 0, NULL, NULL, NULL);
+    sws_scale(player->sws_ctx, (const uint8_t* const*)f->data, f->linesize, 0, f->height, player->dst_frame->data, player->dst_frame->linesize);
+
+    return player->dst_frame->data[0];
+
+    /*
     ret = SDL_UpdateYUVTexture(player->texture, NULL, y, ystride, u, ustride, v, vstride);
     if (ret < 0) {
-        fprintf(stderr, "SDL_UpdateYUVTexture: %s\n", SDL_GetError());
+        fprintf(stdout, "SDL_UpdateYUVTexture: %s\n", SDL_GetError());
         return -1;
     }
     if (buff)
@@ -181,9 +199,10 @@ int update_frame(Player* player) {
 
     ret = SDL_RenderCopy(player->renderer, player->texture, NULL, NULL);
     if (ret < 0) {
-        fprintf(stderr, "SDL_RenderCopy: %s\n", SDL_GetError());
+        fprintf(stdout, "SDL_RenderCopy: %s\n", SDL_GetError());
         return -1;
     }
+    */
 
     player->period_frame_count++;
     player->last_tick = SDL_GetTicks();
@@ -198,8 +217,11 @@ int update_frame(Player* player) {
 
     // update_rects(player);
 
+    /*
     SDL_RenderPresent(player->renderer);
     SDL_RenderFlush(player->renderer);
+    */
+
 #ifdef USE_ADAPTIVE_DELAYING
     uint32_t delay = SDL_min(abs(1000 / player->fps - (int32_t)(SDL_GetTicks() - start)), 40);
 #else
@@ -217,14 +239,14 @@ int on_packet_data(Player* player, void* data, size_t size) {
 #ifndef USE_PARSER_DEMUXING
     ret = av_packet_from_data(player->packet, data, (int)size);
     if (ret < 0) {
-        fprintf(stderr, "av_packet_from_data: %s\n", av_err2str(ret));
+        fprintf(stdout, "av_packet_from_data: %s\n", av_err2str(ret));
         return -1;
     }
 #else
     int read_len = av_parser_parse2(player->parser, player->avctx, &player->packet->data, &player->packet->size, data,
                                     size, AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
     if (read_len < 0) {
-        fprintf(stderr, "av_parser_parse2 error\n");
+        fprintf(stdout, "av_parser_parse2 error\n");
         return -1;
     }
     if (!player->packet->size) {
@@ -234,7 +256,7 @@ int on_packet_data(Player* player, void* data, size_t size) {
     ret = avcodec_send_packet(player->avctx, player->packet);
     if (ret < 0) {
         if (player->frame_count) /* only warn the errors after the first frame decoded */
-            fprintf(stderr, "avcodec_send_packet: %s\n", av_err2str(ret));
+            fprintf(stdout, "avcodec_send_packet: %s\n", av_err2str(ret));
         return -1;
     }
 
@@ -243,7 +265,7 @@ int on_packet_data(Player* player, void* data, size_t size) {
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
             return 0;
         } else if (ret < 0) {
-            fprintf(stderr, "avcodec_receive_frame: %s\n", av_err2str(ret));
+            fprintf(stdout, "avcodec_receive_frame: %s\n", av_err2str(ret));
             return -1;
         }
 
@@ -252,43 +274,47 @@ int on_packet_data(Player* player, void* data, size_t size) {
             return 0;
         }
 
-        update_frame(player);
+        return update_frame(player);
     }
 
-    fprintf(stderr, "avcodec_receive_frame: %s\n", av_err2str(ret));
+    fprintf(stdout, "avcodec_receive_frame: %s\n", av_err2str(ret));
     return 0;
 }
 
 int main(void) {
+#ifdef RUNMAIN
     Player *player = create_player();
     if (!player) {
-        fprintf(stderr, "failed to create player\n");
+        fprintf(stdout, "failed to create player\n");
         exit(0);
     } else {
         printf("created\n");
     }
     int ret = create_window(player);
     if (ret < 0) {
-        fprintf(stderr, "failed to create window\n");
+        fprintf(stdout, "failed to create window\n");
         exit(0);
     }
 
     char fname[20] = {0};
     static char buf[1024*1024] = {0};
-    for (int i = 90; i < 200; i++) {
+    for (int i = 0; i < 183; i++) {
         sprintf(fname, "data/pkt-%04d", i);
         FILE *pkt = fopen(fname, "r");
         if (!pkt) {
-            fprintf(stderr, "failed to open file: %s\n", fname);
+            fprintf(stdout, "failed to open file: %s\n", fname);
             break;
         }
         size_t size = fread(buf, 1, 1024*1024, pkt);
         printf("size: %ld\n", size);
         ret = on_packet_data(player, buf, size);
         if (ret < 0) {
-            fprintf(stderr, "error to decode\n");
+            fprintf(stdout, "error to decode\n");
         }
     }
+#else
+    printf("main load\n");
+#endif
 }
 
 
