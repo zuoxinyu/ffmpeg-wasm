@@ -6,3 +6,5 @@ decoder.data
 decoder.html
 decoder.js
 decoder.wasm
+index.js
+node_modules

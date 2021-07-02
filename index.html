@@ -15,7 +15,7 @@
   <script src="decoder.js"></script>
   <style>
     #myCanvas {
-      background-color: black;
+      /*background-color: black;*/
     }
     #url {
       width: 600px;
@@ -26,6 +26,7 @@
 <body>
   <div>
     <input type="url" value="ws://10.122.100.206:8080/v5/videos/6cb2c55d-1689-49d9-a013-e6ccb2a81a6a/stream?view=pvf" name="url" id="url">
+    <input type="checkbox" name="webgl" id="opengl" checked=true> WebGL
     <button id="play">Play</button>
     <button id="stop">Stop</button>
   </div>
@@ -33,6 +34,6 @@
     <canvas id="myCanvas" width="1920" height="1080" />
   </div>
 </body>
-<script src="index.js"></script>
+<script type="module" src="index.js"></script>
 
 </html>
