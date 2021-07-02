@@ -1,7 +1,7 @@
 'use strict'
-let ws = null
 
 const createPlayer = Module.cwrap('create_player', 'number', [])
+const destroyPlayer = Module.cwrap('destroy_player', 'number', ['number'])
 const onPacketData = Module.cwrap('on_packet_data', 'number', ['number', 'array', 'number'])
 
 // const canvas = document.createElement('canvas')
@@ -106,10 +106,15 @@ function renderRects2D(ctx, player, info) {
 
 let lastJson = null
 
+const player = {
+  ws: null,
+  ptr: null,
+}
+
 function play(url) {
-  const player = createPlayer()
-  console.log('player ptr', player)
-  ws = new WebSocket(url)
+  const ptr = createPlayer()
+  console.log('player ptr', ptr)
+  const ws = new WebSocket(url)
   ws.onopen = console.log
   ws.onerror = console.error
   ws.onmessage = (ev) => {
@@ -117,23 +122,30 @@ function play(url) {
       ev.data.arrayBuffer().then(data => {
         ctx.beginPath()
         ctx.clearRect(0, 0, width, height)
-        if (renderFrame2D(ctx, player, data)) {
-          renderRects2D(ctx, player, lastJson)
+        if (renderFrame2D(ctx, ptr, data)) {
+          renderRects2D(ctx, ptr, lastJson)
         }
       })
     } else {
       lastJson = ev.data
     }
   }
+
+  player.ws = ws
+  player.ptr = ptr
 }
 
 function stop() {
-  ws.close()
+  player.ws.close()
+  destroyPlayer(player.ptr)
+  player.ws = null
+  player.ptr = null
 }
 
 const playBtn = document.querySelector('#play')
 const stopBtn = document.querySelector('#stop')
 const urlInput = document.querySelector('#url')
+
 playBtn.addEventListener('click', () => {
   play(urlInput.value)
 })

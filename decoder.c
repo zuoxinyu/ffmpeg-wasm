@@ -60,6 +60,19 @@ void destroy_decoder(Player* player) {
     }
 }
 
+void destroy_player(Player *player) {
+  if (!player) {
+    return;
+  }
+
+  destroy_decoder(player);
+  if (player->title) {
+    free(player->title);
+  }
+
+  free(player);
+}
+
 Player* create_player() {
     int ret = 0;
 
@@ -130,7 +143,7 @@ Player* create_player() {
     return player;
 
 FAIL:
-    destroy_decoder(player);
+    destroy_player(player);
     return NULL;
 }
 

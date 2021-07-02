@@ -2,9 +2,15 @@
 
 set -e
 
-git clone --depth 1 --branch n4.3.1 https://github.com/FFmpeg/FFmpeg
+if [[ -d FFmpeg ]]; then
+  echo 'already cloned'
+else
+  git clone --depth 1 --branch n4.3.1 https://github.com/FFmpeg/FFmpeg
+fi
 
 cd FFmpeg
+
+EXTRA_ARGS=--enable-small
 
 emconfigure ./configure \
     --disable-everything \
@@ -14,6 +20,7 @@ emconfigure ./configure \
     --enable-decoder=hevc \
     --enable-static \
     --disable-doc \
+    --disable-network \
     --disable-ffmpeg \
     --disable-ffprobe \
     --disable-ffplay \
