@@ -2,7 +2,6 @@
 let ws = null
 
 const createPlayer = Module.cwrap('create_player', 'number', [])
-const createDecoder = Module.cwrap('create_decoder', 'number', ['number'])
 const onPacketData = Module.cwrap('on_packet_data', 'number', ['number', 'array', 'number'])
 
 // const canvas = document.createElement('canvas')
@@ -110,7 +109,6 @@ let lastJson = null
 function play(url) {
   const player = createPlayer()
   console.log('player ptr', player)
-  createDecoder(player)
   ws = new WebSocket(url)
   ws.onopen = console.log
   ws.onerror = console.error
