@@ -3,7 +3,8 @@ EXTRA_ARGS=
 #EXTRA_ARGS='--pre-js main.js'
 emcc decoder.c \
     -o decoder.html \
-    -O2 \
+    -O3 \
+    --closure 1 \
     -IFFmpeg \
     -LFFmpeg/libavcodec \
     -LFFmpeg/libavutil \
@@ -12,6 +13,7 @@ emcc decoder.c \
     -lavutil \
     -lswscale \
     $EXTRA_ARGS \
+    -s ENVIRONMENT=web \
     -s LLD_REPORT_UNDEFINED \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s EXPORTED_RUNTIME_METHODS='[ccall, cwrap, getValue, setValue]' \
