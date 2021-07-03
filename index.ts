@@ -36,15 +36,19 @@ export default class WebSocketPlayer {
         this.useWebGL = useWebGL
         if (this.useWebGL) {
             this.gl = canvas.getContext('webgl')!
+            this.createGL()
         } else {
             this.ctx = canvas.getContext('2d')!
+            this.ctx!.clearRect(0, 0, width, height)
         }
         console.log('player ptr', this.ptr)
     }
 
     play() {
         this.ws = new WebSocket(this.url)
-        this.ws.onopen = console.log
+        this.ws.onopen = (ev) => {
+            console.log(ev)
+        }
         this.ws.onerror = console.error
         this.ws.onmessage = (ev) => {
             if (ev.data instanceof Blob) {
@@ -56,12 +60,12 @@ export default class WebSocketPlayer {
                     }
                     const heapBytes = new Uint8ClampedArray(Module.HEAPU8.buffer, ptr, width * height * 4)
                     if (this.useWebGL) {
-                        this.renderFrameGL(heapBytes)
+                        this.updateGLTexture(heapBytes)
                     } else {
                         this.ctx!.beginPath()
                         this.ctx!.clearRect(0, 0, width, height)
-                        if (this.renderFrame2D(heapBytes)) {
-                            this.renderRects2D(this.lastJson!)
+                        if (this.update2DTexture(heapBytes)) {
+                            this.update2DRects(this.lastJson!)
                         }
                     }
                 })
@@ -114,78 +118,65 @@ export default class WebSocketPlayer {
         return program
     }
 
-    private createBuffers(positions: ArrayLike<number>) {
+    private createBuffers(location: number, vetices: ArrayLike<number>) {
         const gl = this.gl!
 
-        gl.enableVertexAttribArray(0)
-        const positionBuffer = gl.createBuffer()
-        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW)
-        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
+        const buffer = gl.createBuffer()
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vetices), gl.STATIC_DRAW)
+        gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 8, 0)
+        gl.enableVertexAttribArray(location)
 
-        return {
-            position: positionBuffer,
-        }
+        return buffer
     }
 
-    private renderFrameGL(pixels: Uint8ClampedArray) {
+    private createGL() {
         const gl = this.gl!
 
-        //gl.clearColor(1.0, 1.0, 1.0, 1.0)  // Clear to black, fully opaque
-        //gl.clearDepth(1.0)                 // Clear everything
+        gl.clearColor(1.0, 0.0, 0.0, 1.0)  // Clear to black, fully opaque
+        gl.clearDepth(1.0)                 // Clear everything
         gl.enable(gl.DEPTH_TEST)           // Enable depth testing
         gl.depthFunc(gl.LEQUAL)            // Near things obscure far things
 
         const program = this.createProgram(vsSource, fsSource)!
-        const positions = [
-            -1.0, 1.0,
-            1.0, 1.0,
-            -1.0, -1.0,
-            1.0, -1.0,
-        ]
-
-        this.createBuffers(positions)
         gl.useProgram(program)
+
+        const pos = gl.getAttribLocation(program, 'aPos')
+        // TODO: delete buffer
+        this.createBuffers(pos, [
+            -1.0, +1.0, // lt
+            +1.0, +1.0, // rt
+            -1.0, -1.0, // lb
+            +1.0, -1.0, // rb
+        ])
+
+        const texCoord = gl.getAttribLocation(program, 'aTexCoord')
+        // TODO: delete buffer
+        this.createBuffers(texCoord, [
+            0.0, 0.0, // lt
+            1.0, 0.0, // rt
+            0.0, 1.0, // lb
+            1.0, 1.0, // rb
+        ])
+
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-
-        {
-            const texCoord = gl.getAttribLocation(program, 'aTexCoord')
-            gl.enableVertexAttribArray(texCoord)
-            const texCoordBuffer = gl.createBuffer()
-            gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer)
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-                1.0, -1.0,
-                -1.0, -1.0,
-                1.0, 1.0,
-                -1.0, 1.0,
-            ]), gl.STATIC_DRAW)
-            gl.vertexAttribPointer(texCoord, 2, gl.FLOAT, false, 0, 0)
-
-            const uSampler = gl.getUniformLocation(program, 'uSampler')
-
-            const texture = gl.createTexture()
-            gl.bindTexture(gl.TEXTURE_2D, texture)
-            // define size and format of level 0
-            const level = 0
-            const internalFormat = gl.RGBA
-            const border = 0
-            const format = gl.RGBA
-            const type = gl.UNSIGNED_BYTE
-            gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-                width, height, border,
-                format, type, pixels)
-
-            // set the filtering so we don't need mips
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-
-            gl.uniform1i(uSampler, gl.TEXTURE_2D)
-        }
-
     }
 
-    private renderFrame2D(pixels: Uint8ClampedArray) {
+    private updateGLTexture(pixels: Uint8ClampedArray) {
+        const gl = this.gl!
+
+        // TODO: delete
+        const texture = gl.createTexture()
+        gl.bindTexture(gl.TEXTURE_2D, texture)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+    }
+
+    private update2DTexture(pixels: Uint8ClampedArray) {
         const ctx = this.ctx!
 
         const imgData = new ImageData(pixels, width, height)
@@ -193,7 +184,7 @@ export default class WebSocketPlayer {
         return true
     }
 
-    private renderRects2D(info: string) {
+    private update2DRects(info: string) {
         const ctx = this.ctx!
 
         const json: FrameInfo = JSON.parse(info)
@@ -254,4 +245,3 @@ playBtn.addEventListener('click', () => {
 stopBtn.addEventListener('click', () => {
     player.stop()
 })
-
