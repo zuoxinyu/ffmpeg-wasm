@@ -60,17 +60,17 @@ void destroy_decoder(Player* player) {
     }
 }
 
-void destroy_player(Player *player) {
-  if (!player) {
-    return;
-  }
+void destroy_player(Player* player) {
+    if (!player) {
+        return;
+    }
 
-  destroy_decoder(player);
-  if (player->title) {
-    free(player->title);
-  }
+    destroy_decoder(player);
+    if (player->title) {
+        free(player->title);
+    }
 
-  free(player);
+    free(player);
 }
 
 Player* create_player() {
@@ -165,7 +165,7 @@ void* convert(Player* player) {
     return player->dst_frame->data[0];
 }
 
-uintptr_t on_packet_data(Player* player, void* data, size_t size) {
+uintptr_t on_packet_data(Player* player, int fmt, void* data, size_t size) {
     int ret = 0;
 #ifndef USE_PARSER_DEMUXING
     ret = av_packet_from_data(player->packet, data, (int)size);
@@ -205,7 +205,11 @@ uintptr_t on_packet_data(Player* player, void* data, size_t size) {
             return 0;
         }
 
-        return (uintptr_t)convert(player);
+        if (fmt == 1) {
+            return (uintptr_t)player->frame->data;
+        } else {
+            return (uintptr_t)convert(player);
+        }
     }
 
     fprintf(stdout, "avcodec_receive_frame: %s\n", av_err2str(ret));
