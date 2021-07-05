@@ -16,6 +16,15 @@
   <style>
     #myCanvas {
       background-color: black;
+      margin: 0;
+      z-index: 0;
+      display: block;
+    }
+
+    #maskCanvas {
+      margin-top: -1080px;
+      z-index: 100;
+      display: block;
     }
 
     #url {
@@ -27,15 +36,16 @@
 <body>
   <div>
     <input type="url" value="ws://10.122.100.206:8080/v5/videos/6cb2c55d-1689-49d9-a013-e6ccb2a81a6a/stream?view=pvf"
-      name="url" id="url">
-    <input type="checkbox" name="webgl" id="opengl" checked=true> WebGL
+      name="url" id="url" />
+    <input type="checkbox" name="webgl" id="opengl" checked=true> WebGL </input>
     <button id="play">Play</button>
     <button id="stop">Stop</button>
   </div>
-  <div>
-    <canvas id="myCanvas" width="1920" height="1080" />
-  </div>
-  <script type="module" src="index.js"></script>
+
+  <canvas id="myCanvas" width="1920" height="1080"></canvas>
+  <canvas id="maskCanvas" width="1920" height="1080"></canvas>
+  <script type="module" src="index.js"> </script>
+
 </body>
 
 </html>

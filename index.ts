@@ -62,7 +62,6 @@ const fsSource = `
     }
 `
 
-
 export default class WebSocketPlayer {
     private url: string
     private handle: number
@@ -74,23 +73,27 @@ export default class WebSocketPlayer {
     private ws?: WebSocket
     private gl?: WebGLRenderingContext
     private ctx?: CanvasRenderingContext2D
+    private maskCtx?: CanvasRenderingContext2D
     private program?: WebGLProgram
     private buffers: WebGLBuffer[] = []
     private textures: WebGLTexture[] = []
 
-    constructor(url: string, canvas: HTMLCanvasElement, useWebGL = true) {
+    constructor(opts: {
+        url: string,
+        height?: number,
+        width?: number,
+        useWebGL?: boolean,
+        canvas: HTMLCanvasElement,
+        maskCanvas?: HTMLCanvasElement,
+    }) {
         this.handle = createPlayer()
-        this.url = url
-        this.useWebGL = useWebGL
-        this.width = canvas.width
-        this.height = canvas.height
-        if (this.useWebGL) {
-            this.gl = canvas.getContext('webgl')!
-            this.initGL()
-        } else {
-            this.ctx = canvas.getContext('2d')!
-            this.ctx!.clearRect(0, 0, this.width, this.height)
-        }
+        this.url = opts.url
+        this.width = opts.width || opts.canvas.width
+        this.height = opts.height || opts.canvas.height
+        this.useWebGL = opts.useWebGL || false
+        this.maskCtx = opts.maskCanvas?.getContext('2d')!
+
+        this.useWebGL ? this.initGL(opts.canvas) : this.init2D(opts.canvas)
         console.log('player handle', this.handle)
     }
 
@@ -131,11 +134,11 @@ export default class WebSocketPlayer {
             this.updateGLTexture(yPlane, uPlane, vPlane)
         } else {
             const rgbPixels = new Uint8ClampedArray(Module.HEAPU8.buffer, ptr, this.height * this.width * 4) // frame->data[0]
-            this.ctx!.beginPath()
             this.ctx!.clearRect(0, 0, this.width, this.height)
             this.update2DTexture(rgbPixels)
-            this.update2DRects(this.lastAttachment!)
         }
+
+        this.update2DRects(this.lastAttachment!)
     }
 
     protected onAudioData(_: ArrayBuffer) {
@@ -149,6 +152,44 @@ export default class WebSocketPlayer {
     private releaseResources() {
         this.buffers.forEach(buf => this.gl?.deleteBuffer(buf))
         this.textures.forEach(tex => this.gl?.deleteTexture(tex))
+    }
+
+    private initGL(canvas: HTMLCanvasElement) {
+        console.log(canvas)
+        const gl = canvas.getContext('webgl')!
+        this.gl = gl
+
+        gl.clearColor(0.0, 0.0, 0.0, 1.0)  // Clear to black, fully opaque
+        gl.clearDepth(1.0)                 // Clear everything
+        gl.enable(gl.DEPTH_TEST)           // Enable depth testing
+        gl.depthFunc(gl.LEQUAL)            // Near things obscure far things
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1) // handle alignment
+        this.program = this.createProgram(vsSource, fsSource)!
+        gl.useProgram(this.program)
+
+        const pos = gl.getAttribLocation(this.program, 'aPos')
+        const posBuffer = this.createBuffers(pos, [
+            -1.0, +1.0, // lt
+            +1.0, +1.0, // rt
+            -1.0, -1.0, // lb
+            +1.0, -1.0, // rb
+        ])
+
+        const texCoord = gl.getAttribLocation(this.program, 'aTexCoord')
+        const texBuffer = this.createBuffers(texCoord, [
+            0.0, 0.0, // lt
+            1.0, 0.0, // rt
+            0.0, 1.0, // lb
+            1.0, 1.0, // rb
+        ])
+
+        this.buffers.push(posBuffer, texBuffer)
+
+        this.textures.push(this.createTexture())
+        this.textures.push(this.createTexture())
+        this.textures.push(this.createTexture())
+
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     }
 
     private createShader(type: number, code: string): WebGLShader {
@@ -216,41 +257,6 @@ export default class WebSocketPlayer {
         return texture
     }
 
-    private initGL() {
-        const gl = this.gl!
-
-        gl.clearColor(0.0, 0.0, 0.0, 1.0)  // Clear to black, fully opaque
-        gl.clearDepth(1.0)                 // Clear everything
-        gl.enable(gl.DEPTH_TEST)           // Enable depth testing
-        gl.depthFunc(gl.LEQUAL)            // Near things obscure far things
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1) // handle alignment
-        this.program = this.createProgram(vsSource, fsSource)!
-        gl.useProgram(this.program)
-
-        const pos = gl.getAttribLocation(this.program, 'aPos')
-        const posBuffer = this.createBuffers(pos, [
-            -1.0, +1.0, // lt
-            +1.0, +1.0, // rt
-            -1.0, -1.0, // lb
-            +1.0, -1.0, // rb
-        ])
-
-        const texCoord = gl.getAttribLocation(this.program, 'aTexCoord')
-        const texBuffer = this.createBuffers(texCoord, [
-            0.0, 0.0, // lt
-            1.0, 0.0, // rt
-            0.0, 1.0, // lb
-            1.0, 1.0, // rb
-        ])
-
-        this.buffers.push(posBuffer, texBuffer)
-
-        this.textures.push(this.createTexture())
-        this.textures.push(this.createTexture())
-        this.textures.push(this.createTexture())
-
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-    }
 
     private updateGLTexture(...pixels: Uint8Array[]) {
         const gl = this.gl!
@@ -276,6 +282,12 @@ export default class WebSocketPlayer {
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     }
 
+    private init2D(canvas: HTMLCanvasElement) {
+        console.log(canvas)
+        this.ctx = canvas.getContext('2d')!
+        this.ctx!.clearRect(0, 0, this.width, this.height)
+    }
+
     private update2DTexture(pixels: Uint8ClampedArray) {
         const ctx = this.ctx!
 
@@ -284,7 +296,14 @@ export default class WebSocketPlayer {
     }
 
     private update2DRects(info: string) {
-        const ctx = this.ctx!
+        if (!this.maskCtx) {
+            return
+        }
+
+        const ctx = this.maskCtx
+
+        ctx.beginPath()
+        ctx.clearRect(0, 0, this.width, this.height)
 
         const json: FrameInfo = JSON.parse(info)
         const {faces, pedestrians, vehicles, nonmotors} = json;
@@ -302,11 +321,17 @@ const stopBtn = document.querySelector('#stop')! as HTMLButtonElement
 const urlInput = document.querySelector('#url')! as HTMLInputElement
 const useGL = document.querySelector('#opengl')! as HTMLInputElement
 const canvas = document.querySelector('#myCanvas')! as HTMLCanvasElement
+const maskCanvas = document.querySelector('#maskCanvas')! as HTMLCanvasElement
 
 let player: WebSocketPlayer
 
 playBtn.addEventListener('click', () => {
-    player = new WebSocketPlayer(urlInput.value, canvas, useGL.checked)
+    player = new WebSocketPlayer({
+        url: urlInput.value,
+        useWebGL: useGL.checked,
+        canvas,
+        maskCanvas,
+    })
     player.play()
 })
 
