@@ -124,13 +124,13 @@ export default class WebSocketPlayer {
         }
 
         if (this.useWebGL) {
-            const planes = new Uint32Array(Module.HEAPU8.buffer, ptr, 3)
+            const planes = new Uint32Array(Module.HEAPU8.buffer, ptr, 8) // frame->data
             const yPlane = new Uint8Array(Module.HEAPU8.buffer, planes[0], this.height * this.width)
             const uPlane = new Uint8Array(Module.HEAPU8.buffer, planes[1], this.height * this.width / 4)
             const vPlane = new Uint8Array(Module.HEAPU8.buffer, planes[2], this.height * this.width / 4)
             this.updateGLTexture(yPlane, uPlane, vPlane)
         } else {
-            const rgbPixels = new Uint8ClampedArray(Module.HEAPU8.buffer, ptr, this.height * this.width * 4)
+            const rgbPixels = new Uint8ClampedArray(Module.HEAPU8.buffer, ptr, this.height * this.width * 4) // frame->data[0]
             this.ctx!.beginPath()
             this.ctx!.clearRect(0, 0, this.width, this.height)
             this.update2DTexture(rgbPixels)
@@ -223,7 +223,7 @@ export default class WebSocketPlayer {
         gl.clearDepth(1.0)                 // Clear everything
         gl.enable(gl.DEPTH_TEST)           // Enable depth testing
         gl.depthFunc(gl.LEQUAL)            // Near things obscure far things
-
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1) // handle alignment
         this.program = this.createProgram(vsSource, fsSource)!
         gl.useProgram(this.program)
 
@@ -256,20 +256,22 @@ export default class WebSocketPlayer {
         const gl = this.gl!
         const program = this.program!
 
-        gl.bindTexture(gl.TEXTURE_2D, this.textures[0])
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width, this.height, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, pixels[0])
-        gl.activeTexture(gl.TEXTURE0)
-        gl.uniform1i(gl.getUniformLocation(program, 'uTexY'), 0)
+        const [y, u, v] = [0, 1, 2]
 
-        gl.bindTexture(gl.TEXTURE_2D, this.textures[1])
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width / 2, this.height / 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, pixels[1])
-        gl.activeTexture(gl.TEXTURE1)
-        gl.uniform1i(gl.getUniformLocation(program, 'uTexU'), 1)
+        gl.bindTexture(gl.TEXTURE_2D, this.textures[y])
+        gl.activeTexture(gl.TEXTURE0 + y)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width, this.height, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, pixels[y])
+        gl.uniform1i(gl.getUniformLocation(program, 'uTexY'), y)
 
-        gl.bindTexture(gl.TEXTURE_2D, this.textures[2])
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width / 2, this.height / 2, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, pixels[2])
-        gl.activeTexture(gl.TEXTURE2)
-        gl.uniform1i(gl.getUniformLocation(program, 'uTexV'), 2)
+        gl.bindTexture(gl.TEXTURE_2D, this.textures[u])
+        gl.activeTexture(gl.TEXTURE0 + u)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width >> 1, this.height >> 1, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, pixels[u])
+        gl.uniform1i(gl.getUniformLocation(program, 'uTexU'), u)
+
+        gl.bindTexture(gl.TEXTURE_2D, this.textures[v])
+        gl.activeTexture(gl.TEXTURE0 + v)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, this.width >> 1, this.height >> 1, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, pixels[v])
+        gl.uniform1i(gl.getUniformLocation(program, 'uTexV'), v)
 
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     }
