@@ -2,7 +2,7 @@
 EXTRA_ARGS=
 #EXTRA_ARGS='--pre-js main.js'
 emcc decoder.c \
-    -o decoder.html \
+    -o build/decoder.html \
     -O3 \
     --closure 1 \
     -IFFmpeg \
