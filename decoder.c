@@ -73,7 +73,7 @@ void destroy_player(Player* player) {
     free(player);
 }
 
-Player* create_player() {
+Player* create_player(int width, int height, int codec_id) {
     int ret = 0;
 
     Player* player = calloc(sizeof(Player), 1);
@@ -87,9 +87,9 @@ Player* create_player() {
         return NULL;
     }
 
-    player->codec_id = AV_CODEC_ID_H265;
-    player->h = WIN_HEIGHT;
-    player->w = WIN_WIDTH;
+    player->codec_id = codec_id == 0 ? AV_CODEC_ID_H264 : AV_CODEC_ID_H265;
+    player->h = width;
+    player->w = height;
     player->x = 0;
     player->y = 0;
     player->fps = 25;
@@ -131,8 +131,8 @@ Player* create_player() {
         goto FAIL;
     }
 
-    player->dst_frame->width = 1920;
-    player->dst_frame->height = 1080;
+    player->dst_frame->width = width;
+    player->dst_frame->height = height;
     player->dst_frame->format = AV_PIX_FMT_RGBA;
     av_frame_get_buffer(player->dst_frame, 0);
 

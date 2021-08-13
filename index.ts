@@ -22,7 +22,7 @@ interface FrameInfo {
 
 type ExtendedBlob = Blob & {arrayBuffer: () => Promise<ArrayBuffer>}
 
-const createPlayer = Module.cwrap('create_player', 'number', []) as () => number
+const createPlayer = Module.cwrap('create_player', 'number', ['number', 'number', 'number']) as (a: number, b: number, c: number) => number
 const destroyPlayer = Module.cwrap('destroy_player', 'number', ['number']) as (a: number) => number
 const onPacketData = Module.cwrap('on_packet_data', 'number', ['number', 'number', 'array', 'number']) as (a: number, f: boolean, b: Uint8Array, c: number) => number
 
@@ -73,6 +73,8 @@ export default class WebSocketPlayer {
     private ws?: WebSocket
     private gl?: WebGLRenderingContext
     private ctx?: CanvasRenderingContext2D
+    private canvas: HTMLCanvasElement
+    private maskCanvas: HTMLCanvasElement
     private maskCtx?: CanvasRenderingContext2D
     private program?: WebGLProgram
     private buffers: WebGLBuffer[] = []
@@ -83,11 +85,14 @@ export default class WebSocketPlayer {
         height?: number,
         width?: number,
         useWebGL?: boolean,
+        h265?: boolean,
         canvas: HTMLCanvasElement,
-        maskCanvas?: HTMLCanvasElement,
+        maskCanvas: HTMLCanvasElement,
     }) {
-        this.handle = createPlayer()
+        this.handle = createPlayer(opts.width!, opts.height!, opts.h265 ? 1 : 0)
         this.url = opts.url
+        this.canvas = canvas
+        this.maskCanvas = maskCanvas
         this.width = opts.width || opts.canvas.width
         this.height = opts.height || opts.canvas.height
         this.useWebGL = opts.useWebGL || false
@@ -146,6 +151,16 @@ export default class WebSocketPlayer {
     }
 
     protected onAttachData(data: any) {
+        const info = JSON.parse(data)
+        if (info.width) {
+            console.log(info)
+            this.width = info.width
+            this.height = info.height
+            this.canvas.width = this.width
+            this.canvas.height = this.height
+            this.maskCanvas.width = this.width
+            this.maskCanvas.height = this.height
+        }
         this.lastAttachment = data
     }
 
@@ -155,7 +170,6 @@ export default class WebSocketPlayer {
     }
 
     private initGL(canvas: HTMLCanvasElement) {
-        console.log(canvas)
         const gl = canvas.getContext('webgl')!
         this.gl = gl
 
@@ -283,7 +297,6 @@ export default class WebSocketPlayer {
     }
 
     private init2D(canvas: HTMLCanvasElement) {
-        console.log(canvas)
         this.ctx = canvas.getContext('2d')!
         this.ctx!.clearRect(0, 0, this.width, this.height)
     }
@@ -320,6 +333,7 @@ const playBtn = document.querySelector('#play')! as HTMLButtonElement
 const stopBtn = document.querySelector('#stop')! as HTMLButtonElement
 const urlInput = document.querySelector('#url')! as HTMLInputElement
 const useGL = document.querySelector('#opengl')! as HTMLInputElement
+const h265 = document.querySelector('#codec')! as HTMLInputElement
 const canvas = document.querySelector('#myCanvas')! as HTMLCanvasElement
 const maskCanvas = document.querySelector('#maskCanvas')! as HTMLCanvasElement
 
@@ -329,6 +343,7 @@ playBtn.addEventListener('click', () => {
     player = new WebSocketPlayer({
         url: urlInput.value,
         useWebGL: useGL.checked,
+        h265: h265.checked,
         canvas,
         maskCanvas,
     })
